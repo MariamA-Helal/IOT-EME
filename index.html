@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Industrial Vibration Monitor</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #121212; color: #fff; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 { margin: 0; color: #00d2ff; }
+        .status { font-size: 0.9em; color: #888; }
+        
+        .dashboard { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 800px; margin-bottom: 30px; }
+        .card { background-color: #1e1e1e; border-radius: 12px; padding: 20px; flex: 1; min-width: 200px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        .card-title { font-size: 1.1em; color: #aaa; margin-bottom: 10px; }
+        .card-value { font-size: 2.5em; font-weight: bold; margin: 10px 0; }
+        
+        .state-normal { color: #00e676; text-shadow: 0 0 10px #00e67655; }
+        .state-elevated { color: #ffea00; text-shadow: 0 0 10px #ffea0055; }
+        .state-fault { color: #ff1744; text-shadow: 0 0 10px #ff174455; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+        /* تنسيق نافذة الـ Serial Log */
+        .terminal-container { width: 100%; max-width: 800px; background-color: #1e1e1e; border-radius: 8px; padding: 15px; box-sizing: border-box; }
+        .terminal-title { color: #aaa; margin-bottom: 10px; font-weight: bold; }
+        .terminal { background-color: #000; color: #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 0.9em; padding: 10px; height: 200px; overflow-y: auto; border-radius: 5px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Vibration Analysis Dashboard</h1>
+        <div id="connectionStatus" class="status">Connecting to Broker...</div>
+    </div>
+
+    <div class="dashboard">
+        <div class="card"><div class="card-title">Machine State</div><div id="mlState" class="card-value">WAITING</div></div>
+        <div class="card"><div class="card-title">Vibration (RMS)</div><div id="rmsValue" class="card-value">0.00</div></div>
+        <div class="card"><div class="card-title">AI Confidence</div><div id="confidenceValue" class="card-value">0%</div></div>
+    </div>
+
+    <!-- نافذة الـ Serial -->
+    <div class="terminal-container">
+        <div class="terminal-title">System Serial Logs (Live)</div>
+        <div id="terminal" class="terminal">Waiting for system logs...<br></div>
+    </div>
+
+    <script>
+        const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt';
+        const topicTelemetry = 'gp_eme/mariam/vibration';
+        const topicLogs = 'gp_eme/mariam/logs'; // الاشتراك في موضوع اللوجز
+
+        const client = mqtt.connect(brokerUrl);
+        const terminal = document.getElementById('terminal');
+
+        // وظيفة لإضافة نص في الـ Terminal
+        function printToTerminal(text) {
+            const time = new Date().toLocaleTimeString();
+            terminal.innerHTML += `[${time}] ${text}<br>`;
+            terminal.scrollTop = terminal.scrollHeight; // النزول لأسفل تلقائياً
+        }
+
+        client.on('connect', () => {
+            document.getElementById('connectionStatus').textContent = '🟢 Connected to HiveMQ (TLS)';
+            client.subscribe(topicTelemetry);
+            client.subscribe(topicLogs); // الاشتراك في اللوجز
+            printToTerminal("Connected to MQTT Broker successfully.");
+        });
+
+        client.on('message', (topic, message) => {
+            if (topic === topicTelemetry) {
+                try {
+                    const data = JSON.parse(message.toString());
+                    document.getElementById('rmsValue').textContent = data.rms.toFixed(2);
+                    document.getElementById('confidenceValue').textContent = data.confidence.toFixed(1) + '%';
+                    
+                    const mlState = document.getElementById('mlState');
+                    mlState.textContent = data.state;
+                    mlState.className = 'card-value'; 
+                    if (data.state === 'NORMAL') mlState.classList.add('state-normal');
+                    else if (data.state === 'ELEVATED') mlState.classList.add('state-elevated');
+                    else if (data.state === 'FAULT') mlState.classList.add('state-fault');
+                } catch (e) { printToTerminal("Error parsing JSON"); }
+            } 
+            else if (topic === topicLogs) {
+                // لو الرسالة جاية على topic الـ logs، اطبعها في الـ Terminal
+                printToTerminal(message.toString());
+            }
+        });
+    </script>
+</body>
+</html>
